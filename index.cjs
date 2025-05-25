@@ -1882,5 +1882,6 @@ client.on('ready', () => {
         );
     }, delay);
   }
-
+  const ID = process.env.DISCORD_ID;
+  logToConsole(`Please add the bot to the server /n https://discord.com/oauth2/authorize?client_id=${ID}&permissions=964220516416&scope=bot`)
   client.login(TOKEN);

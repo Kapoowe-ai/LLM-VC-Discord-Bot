@@ -22,8 +22,8 @@ Additionally, you can just use the bot in text channels.
 
 1. **Clone the Repository:**
    ```bash
-   git clone <repository-url>
-   cd <repository-directory>
+   git clone https://github.com/Kapoowe-ai/LLM-VC-Discord-Bot
+   cd LLM-VC-Discord-Bot
    ```
 
 2. **Install Dependencies:**
@@ -75,4 +75,4 @@ __You may at any time say `stop` to stop the bot while it is speaking.__
 ## Troubleshooting
 - **Bot Doesn't Join Channel**: Ensure the bot has the correct permissions in your Discord server, including the ability to join and speak in voice channels.
 - **No Audio from Bot**: Check that the TTS API is returning valid MP3 audio data and that the bot has permissions to play audio in the channel.
-- **Errors in Transcription or Response**: Verify that the API endpoints and models specified in the `.env` file are correct and that the APIs are operational.
+- **Errors in Transcription or Response**: Verify that the API endpoints and models specified in `.env` or the `compose.yaml` file are correct and that the APIs are operational.
