@@ -45,3 +45,5 @@ services:
       - HUGGING_FACE_API=MY_HUGGING_FACE_API_KEY
       - VISION_ENDPOINT=https://api-inference.huggingface.co/models
       - VISION_MODEL=Salesforce/blip-image-captioning-large
+
+
