@@ -1,7 +1,9 @@
+// noinspection SpellCheckingInspection
+
 require('dotenv').config();
 
-const { Client, GatewayIntentBits, parseResponse } = require('discord.js');
-const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, EndBehaviorType} = require('@discordjs/voice');
+const { Client, GatewayIntentBits} = require('discord.js');
+const { joinVoiceChannel, createAudioPlayer, createAudioResource, EndBehaviorType, AudioPlayerStatus } = require('@discordjs/voice');
 const fs = require('fs');
 const axios = require('axios');
 const FormData = require('form-data');
@@ -10,16 +12,16 @@ const prism = require('prism-media');
 const path = require('path');
 const { log } = require('console');
 const { exec } = require('child_process');
+//const {  } = require('ytdl');
 
+const player = createAudioPlayer();
 let alarms = [];
-
 let connection = null;
 let alarmongoing = false;
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
 });
-
 // Call the command registration script
 exec(`node ${path.join(__dirname, 'registerCommands.cjs')}`, (error, stdout, stderr) => {
   if (error) {
@@ -57,6 +59,7 @@ if (!fs.existsSync('./sounds')) {
   fs.mkdirSync('./sounds');
 }
 
+
 client.on('ready', () => {
   // Clean up any old recordings
   fs.readdir('./recordings', (err, files) => {
@@ -79,12 +82,12 @@ client.on('ready', () => {
     switch (commandName) {
       case 'join':
         const mode = options.getString('mode');
-        // You join logic here, using `mode` as the option
+        // Your join logic here, using `mode` as the option
         if (connection) {
           await interaction.reply({
             content:
               'I am already in a voice channel. Please use the `leave` command first.',
-            ephemeral: true,
+            flags: 'Ephemeral',
           });
           return;
         }
@@ -104,28 +107,29 @@ client.on('ready', () => {
         if (interaction.member.voice.channel) {
           connection = joinVoiceChannel({
             channelId: interaction.member.voice.channel.id,
+            channelName: interaction.member.voice.channel.name,
             guildId: interaction.guild.id,
             adapterCreator: interaction.guild.voiceAdapterCreator,
             selfDeaf: false,
           });
           if (transcribemode) {
-            sendToTTS(
+            await sendToTTS(
               'Transcription mode is enabled for this conversation. Once you type the leave command, a transcription of the conversation will be sent in the channel.',
               interaction.user.id,
               connection,
               interaction.member.voice.channel,
             );
           }
-          logToConsole('> Joined voice channel', 'info', 1);
-          handleRecording(connection, interaction.member.voice.channel);
+          logToConsole('> Joined voice channel: ' + interaction.member.voice.channel.name, 'info', 1);
+          await handleRecording(connection, interaction.member.voice.channel);
           await interaction.reply({
-            content: 'Joined voice channel.',
-            ephemeral: true,
+            content: `Joined voice channel: ${interaction.member.voice.channel.name}`,
+            flags: 'Ephemeral',
           });
         } else {
           await interaction.reply({
             content: 'You need to join a voice channel first!',
-            ephemeral: true,
+            flags: 'Ephemeral',
           });
         }
         break;
@@ -134,7 +138,7 @@ client.on('ready', () => {
         chatHistory = {};
         await interaction.reply({
           content: 'Chat history reset!',
-          ephemeral: true,
+          flags: 'Ephemeral',
         });
         logToConsole('> Chat history reset!', 'info', 1);
         break;
@@ -143,7 +147,7 @@ client.on('ready', () => {
         const query = options.getString('query');
         if (interaction.member.voice.channel) {
           currentlythinking = true;
-          seatchAndPlayYouTube(
+          await seatchAndPlayYouTube(
             query,
             interaction.user.id,
             connection,
@@ -153,7 +157,7 @@ client.on('ready', () => {
         } else {
           await interaction.reply({
             content: 'You need to join a voice channel first!',
-            ephemeral: true,
+            flags: 'Ephemeral',
           });
         }
         break;
@@ -176,12 +180,12 @@ client.on('ready', () => {
           logToConsole('> Left voice channel', 'info', 1);
           await interaction.reply({
             content: 'Left voice channel.',
-            ephemeral: true,
+            flags: 'Ephemeral',
           });
         } else {
           await interaction.reply({
             content: 'I am not in a voice channel.',
-            ephemeral: true,
+            flags: 'Ephemeral',
           });
         }
         break;
@@ -201,9 +205,15 @@ client.on('ready', () => {
           try {
             // Edit the initially deferred reply with the first part
             await interaction.editReply(part);
-            // For subsequent parts, use follow-up messages
-            for (let i = 1; i < messageParts.length; i++) {
-              await interaction.followUp(messageParts[i]);
+            // For later parts, use follow-up messages
+            for (let i = 0; i < audioqueue.length; i++) {
+              const audioFile = audioqueue[i];
+              logToConsole(`Writing audio queue item ${i} of ${audioqueue.length}: ${audioFile}`, 'info', 2);
+
+              if (i < audioqueue.length - 1) {
+                await connection.play(audioqueue[i + 1]);
+                logToConsole(`> Audio queue item ${i + 1} of ${audioqueue.length}: ${audioqueue[i + 1].name}`, 'info', 2);
+              }
             }
           } catch (error) {
             console.error(`Failed to send message part: ${error}`);
@@ -225,17 +235,17 @@ client.on('ready', () => {
         if (!timestamp || timestamp.length < 2) {
           await interaction.reply({
             content: `Incorrect timestamp format.`,
-            ephemeral: true,
+            flags: 'Ephemeral',
           });
           return;
         }
 
         // Schedule the reminder
-        scheduleReminder(timestamp[1], message, userid);
+        await scheduleReminder(timestamp[1], message, userid);
 
         await interaction.reply({
           content: `Reminder set for ${time}.`,
-          ephemeral: true,
+          flags: 'Ephemeral',
         });
 
         break;
@@ -254,16 +264,16 @@ client.on('ready', () => {
       __Notes:__
       If vision is enabled, sending an image mentioning the bot will have it react to it in voice chat.
       A valid API key is required for the YouTube feature.`,
-          ephemeral: true,
+          flags: 'Ephemeral',
         });
         break;
     }
   });
 
   client.on('messageCreate', async (message) => {
-    // Ignore own messages and system messages
+    // Ignore own messages, system messages, and everyone mentions
     if (message.author.id === client.user.id || message.system) return;
-
+    if (message.mentions.everyone === true) return;
     // Check if the bot was mentioned with a picture attached
     if (
       message.mentions.has(client.user) &&
@@ -273,7 +283,7 @@ client.on('ready', () => {
       // Get image URL from the message
       const imageUrl = message.attachments.first().url;
       const userId = message.author.id;
-      captionImage(imageUrl, userId, connection, message.member.voice.channel);
+      await captionImage(imageUrl, userId, connection, message.member.voice.channel);
       return;
     }
 
@@ -346,6 +356,15 @@ client.on('ready', () => {
     } else if (isMention) {
       await message.channel.sendTyping();
       logToConsole('> Mentioned in message', 'info', 1);
+      //logToConsole(message.content, 'info', 2)
+
+      let nick = message.author.username;
+      let clientid = String(client.user.id);
+      let text = message.content.replace('<@'+ clientid + '>', '');
+      let final = nick + ": " + text;
+      logToConsole(final, 'info', 2)
+      message.content = final;
+      logToConsole(message.content, 'info', 2);
 
       // Start a new conversation
       const response = await sendTextToLLM(message);
@@ -380,11 +399,16 @@ client.on('ready', () => {
   //Start of Recording Block
   function handleRecording(connection, channel) {
     const receiver = connection.receiver;
+    if (!receiver){
+      logToConsole(`>Error: Receiver not found ln:393`, 'error', 2)
+      return;
+    }
     channel.members.forEach((member) => {
       if (member.user.bot) return;
 
       const filePath = `./recordings/${member.user.id}.pcm`;
       const writeStream = fs.createWriteStream(filePath);
+      const name = member.user.username
       const listenStream = receiver.subscribe(member.user.id, {
         end: {
           behavior: EndBehaviorType.AfterSilence,
@@ -401,39 +425,46 @@ client.on('ready', () => {
       listenStream.pipe(opusDecoder).pipe(writeStream);
 
       writeStream.on('finish', () => {
-        logToConsole(`> Audio recorded for ${member.user.username}`, 'info', 2);
-        convertAndHandleFile(filePath, member.user.id, connection, channel);
+        logToConsole(`> Audio recorded for ${name}`, 'info', 2);
+        convertAndHandleFile(filePath, member.user.id, name, connection, channel);
       });
     });
   }
 
-  function handleRecordingForUser(userID, connection, channel) {
+  function handleRecordingForUser(userid, connection, channel) {
     const receiver = connection.receiver;
+    if (!receiver){
+      logToConsole(`>Error: Receiver not found ln:428`, 'error', 2)
+      return;
+    }
+    channel.members.forEach((member) => {
+      if (member.user.bot) return;
 
-    const filePath = `./recordings/${userID}.pcm`;
-    const writeStream = fs.createWriteStream(filePath);
-    const listenStream = receiver.subscribe(userID, {
-      end: {
-        behavior: EndBehaviorType.AfterSilence,
-        duration: process.env.WAIT_TIME,
-      },
-    });
+      const filePath = `./recordings/${member.user.id}.pcm`;
+      const writeStream = fs.createWriteStream(filePath);
+      const name = member.user.username
+      const listenStream = receiver.subscribe(member.user.id, {
+        end: {
+          behavior: EndBehaviorType.AfterSilence,
+          duration: process.env.WAIT_TIME,
+        },
+      });
+      const opusDecoder = new prism.opus.Decoder({
+        frameSize: 960,
+        channels: 1,
+        rate: 48000,
+      });
 
-    const opusDecoder = new prism.opus.Decoder({
-      frameSize: 960,
-      channels: 1,
-      rate: 48000,
-    });
+      listenStream.pipe(opusDecoder).pipe(writeStream);
 
-    listenStream.pipe(opusDecoder).pipe(writeStream);
-
-    writeStream.on('finish', () => {
-      logToConsole(`> Audio recorded for ${userID}`, 'info', 2);
-      convertAndHandleFile(filePath, userID, connection, channel);
+      writeStream.on('finish', () => {
+        logToConsole(`> Audio recorded for ${name}`, 'info', 2);
+        convertAndHandleFile(filePath, userid, name, connection, channel);
+      });
     });
   }
 
-  function convertAndHandleFile(filePath, userid, connection, channel) {
+  function convertAndHandleFile(filePath, userid, name, connection, channel) {
     const mp3Path = filePath.replace('.pcm', '.mp3');
     ffmpeg(filePath)
       .inputFormat('s16le')
@@ -446,12 +477,18 @@ client.on('ready', () => {
       .save(mp3Path)
       .on('end', () => {
         logToConsole(`> Converted to MP3: ${mp3Path}`, 'info', 2);
-        sendAudioToAPI(mp3Path, userid, connection, channel);
+        sendAudioToAPI(mp3Path, userid, name, connection, channel);
       });
   }
 //Send recording to STT API to Transcribe
 
-  async function sendAudioToAPI(fileName, userId, connection, channel) {
+  async function sendAudioToAPI(fileName, userid, name, connection, channel) {
+
+    // Input validation
+    if (!fileName || !userid || !name || !connection || !channel) {
+      throw new Error('Invalid input parameters');
+    }
+
     const formData = new FormData();
     //formData.append('model', process.env.STT_MODEL);
     formData.append('audio_file', fs.createReadStream(fileName), {
@@ -459,7 +496,7 @@ client.on('ready', () => {
       audio_file: 'fileName',
       accept: 'application/json',
     });
- //Temporary code block, just in case I'm wrong. This sends a request to the STT
+ //This sends a request to the STT
     try {
       const response = await axios.post(
         process.env.STT_ENDPOINT + '/asr?encode=true&task=transcribe&language=en&vad_filter=true&word_timestamps=false&output=txt',
@@ -469,22 +506,28 @@ client.on('ready', () => {
         },
       );
 
-   let transcription = response.data
-    let transcriptionwithoutpunctuation = transcription.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, "");
-    transcriptionwithoutpunctuation = transcriptionwithoutpunctuation.toLowerCase();
+   let result = response.data;
+   let transcription = 'VOICECHAT: ' + name + `: ` + result;
+   let transcriptionwithoutpunctuation = result.replace(
+     /[.,\/#!$%^&*;:{}=\-_`~()]/g,
+     '',
+   );
+   transcriptionwithoutpunctuation =
+     transcriptionwithoutpunctuation.toLowerCase();
+   logToConsole(`${transcription}`, 'info', 2);
+   const ignoreTriggers = ['Thank you.', 'Bye.'];
+   if (ignoreTriggers.some((trigger) => transcription.includes(trigger))) {
+     logToConsole('> Ignoring background/keyboard sounds.', 'info', 2);
+     restartListening(userid, connection, channel);
+     return;
+   }
 
-        const ignoreTriggers = ['Thank you.', 'Bye.'];
-        if (ignoreTriggers.some((trigger) => transcription.includes(trigger))) {
-          logToConsole('> Ignoring background/keyboard sounds.', 'info', 2);
-          restartListening(userId, connection, channel);
-          return;
-        }
 
-        logToConsole(
-          `> Transcription for ${userId}: "${transcription}"`,
-          'info',
-          1,
-        );
+        //logToConsole(
+         // `> Transcription: ${transcription}`,
+         // 'info',
+         // 1,
+        //);
 
         // If the alarm is ongoing and transcription is 'stop', stop the alarm
         if (
@@ -493,65 +536,100 @@ client.on('ready', () => {
             transcriptionwithoutpunctuation.toLowerCase().includes('shut up') ||
             transcriptionwithoutpunctuation.toLowerCase().includes('fuck off'))
         ) {
-          playSound(connection, 'command');
+          await playSound(connection, 'command');
           alarmongoing = false;
           currentlythinking = false;
-          audioqueue = [];
+          chatHistory = {};
+          player.stop();
           logToConsole('> Bot stopped.', 'info', 1);
-          restartListening(userId, connection, channel);
+          restartListening(userid, connection, channel);
           return;
         }
 
-        if (currentlythinking) {
-          logToConsole(
-            '> Bot is already thinking, ignoring transcription.',
-            'info',
-            2,
-          );
-          restartListening(userId, connection, channel);
-          return;
-        }
+
 
         // Check if the transcription includes the bot's name
         if (
           botnames.some((name) => {
             const regex = new RegExp(`\\b${name}\\b`, 'i');
-            return regex.test(transcription) || allowwithouttrigger;
+            return regex.test(result) || allowwithouttrigger;
           })
         ) {
           // Ignore if the string is a single word
-          if (transcription.split(' ').length <= 1) {
+          if (result.split(' ').length <= 1) {
             currentlythinking = false;
             logToConsole('> Ignoring single word command.', 'info', 2);
-            restartListening(userId, connection, channel);
+            restartListening(userid, connection, channel);
             return;
           }
 
           // Remove the first occurrence of the bot's name from the transcription
           for (const name of botnames) {
-            transcription = transcription
+            result = result
               .replace(new RegExp(`\\b${name}\\b`, 'i'), '')
               .trim();
           }
+          if(
+            transcriptionwithoutpunctuation.includes('hang') &&
+            transcriptionwithoutpunctuation.includes('on')
+          ) {
+            await playSound(connection, 'command');
+            currentlythinking = false;
+            chatHistory = {};
+            player.pause();
+            restartListening(userid, connection, channel);
+            return;
+          }else if (
+            transcriptionwithoutpunctuation.includes('please') &&
+            transcriptionwithoutpunctuation.includes('continue')
+          ) {
+            await playSound(connection, 'command');
+            currentlythinking = false;
+            chatHistory = {};
+            player.unpause();
+            restartListening(userid, connection, channel);
+            return;
+            } else if (
+              transcriptionwithoutpunctuation.includes('stop') ||
+              transcriptionwithoutpunctuation.includes('shut up') ||
+              transcriptionwithoutpunctuation.includes('fuck off')
+          ) {
+            await playSound(connection, 'command');
+            currentlythinking = false;
+            chatHistory = {};
+            player.stop();
+            logToConsole('> Bot stopped.', 'info', 1);
+            restartListening(userid, connection, channel);
+            return;
+          }
 
+          if (currentlythinking) {
+              logToConsole(
+              '> Bot is already thinking, ignoring transcription.',
+              'info',
+              2,
+            );
+            restartListening(userid, connection, channel);
+            return;
+          }
           // Check if transcription is a command
           if (
             transcriptionwithoutpunctuation.includes('reset') &&
             transcriptionwithoutpunctuation.includes('chat') &&
             transcriptionwithoutpunctuation.includes('history')
           ) {
-            playSound(connection, 'command');
+            await playSound(connection, 'command');
             currentlythinking = false;
             chatHistory = {};
             logToConsole('> Chat history reset!', 'info', 1);
-            restartListening(userId, connection, channel);
+            restartListening(userid, connection, channel);
             return;
           } else if (
             transcriptionwithoutpunctuation.includes('leave') &&
             transcriptionwithoutpunctuation.includes('voice') &&
             transcriptionwithoutpunctuation.includes('chat')
           ) {
-            playSound(connection, 'command');
+            await playSound(connection, 'command');
             currentlythinking = false;
             connection.destroy();
             connection = null;
@@ -597,15 +675,15 @@ client.on('ready', () => {
             )
           ) {
             currentlythinking = true;
-            playSound(connection, 'understood');
+            await playSound(connection, 'understood');
             // Remove the song triggers from the transcription
             for (const trigger of songTriggers) {
               for (const word of trigger) {
                 transcription = transcription.replace(word, '').trim();
               }
             }
-            seatchAndPlayYouTube(transcription, userId, connection, channel);
-            restartListening(userId, connection, channel);
+            await seatchAndPlayYouTube(transcription, userid, connection, channel);
+            restartListening(userid, connection, channel);
             return;
           } else if (
             timerTriggers.some((triggers) =>
@@ -615,7 +693,7 @@ client.on('ready', () => {
             )
           ) {
             currentlythinking = true;
-            playSound(connection, 'understood');
+            await playSound(connection, 'understood');
             // Determine if the timer is for an alarm or a timer
             const timertype = transcription.toLowerCase().includes('alarm')
               ? 'alarm'
@@ -628,8 +706,8 @@ client.on('ready', () => {
               }
             }
             // Send it to timer API
-            setTimer(transcription, timertype, userId, connection, channel);
-            restartListening(userId, connection, channel);
+            await setTimer(transcription, timertype, userid, connection, channel);
+            restartListening(userid, connection, channel);
             return;
           } else if (
             cancelTimerTriggers.some((triggers) =>
@@ -638,7 +716,7 @@ client.on('ready', () => {
               ),
             )
           ) {
-            playSound(connection, 'understood');
+            await playSound(connection, 'understood');
             // Remove the cancel timer triggers from the transcription
             for (const word of cancelTimerTriggers) {
               transcription = transcription.replace(word, '').trim();
@@ -678,29 +756,29 @@ client.on('ready', () => {
 
             if (timerId) {
               // Cancel the timer with the given ID
-              cancelTimer(timerId[0], userId, connection, channel);
+              cancelTimer(timerId[0], userid, connection, channel);
             } else {
               // List the timers
               if (alarms.length > 1) {
-                sendToTTS(
+                await sendToTTS(
                   `Which one would you like to cancel? You have the following: ${alarms.map((alarm, index) => `${alarm.type} ${index + 1} set for ${alarm.time}`).join(', ')}`,
-                  userId,
+                  userid,
                   connection,
                   channel,
                 );
               } else if (alarms.length === 1) {
-                cancelTimer(1, userId, connection, channel);
+                cancelTimer(1, userid, connection, channel);
               } else {
-                sendToTTS(
+                await sendToTTS(
                   'There are no timers to cancel.',
-                  userId,
+                  userid,
                   connection,
                   channel,
                 );
               }
             }
 
-            restartListening(userId, connection, channel);
+            restartListening(userid, connection, channel);
             return;
           } else if (
             listTimerTriggers.some((triggers) =>
@@ -709,9 +787,9 @@ client.on('ready', () => {
               ),
             )
           ) {
-            playSound(connection, 'understood');
-            listTimers(userId, connection, channel);
-            restartListening(userId, connection, channel);
+            await playSound(connection, 'understood');
+            listTimers(userid, connection, channel);
+            restartListening(userid, connection, channel);
             return;
           } else if (
             internetTriggers.some((trigger) =>
@@ -724,21 +802,22 @@ client.on('ready', () => {
             transcription = transcription.replace(/internet for/g, 'internet');
 
             currentlythinking = true;
-            playSound(connection, 'understood');
+            await playSound(connection, 'understood');
             // Remove the internet triggers from the transcription
             for (const word of internetTriggers) {
               transcription = transcription.replace(word, '').trim();
             }
             // Send it to search API
-            sendToPerplexity(transcription, userId, connection, channel);
-            restartListening(userId, connection, channel);
+            await sendToPerplexity(transcription, userid, connection, channel);
+            restartListening(userid, connection, channel);
             return;
           }
 
           currentlythinking = true;
-          playSound(connection, 'understood');
-          sendToLLM(transcription, userId, connection, channel);
-          restartListening(userId, connection, channel);
+          await playSound(connection, 'understood');
+          await sendToLLM(transcription, userid, connection, channel);
+          logToConsole(`> Sending to LLM...`, 'info', 2)
+          restartListening(userid, connection, channel);
         } else {
           currentlythinking = false;
           logToConsole(
@@ -746,7 +825,7 @@ client.on('ready', () => {
             'info',
             2,
           );
-          restartListening(userId, connection, channel);
+          restartListening(userid, connection, channel);
         }
       }
     catch
@@ -759,7 +838,7 @@ client.on('ready', () => {
           1,
         );
         // Restart listening after an error
-        restartListening(userId, connection, channel);
+        restartListening(userid, connection, channel);
       }
     finally
       {
@@ -774,8 +853,8 @@ client.on('ready', () => {
       }
     }
 
-  async function sendToLLM(transcription, userId, connection, channel) {
-    let messages = chatHistory[userId] || [];
+  async function sendToLLM(transcription, userid, connection, channel) {
+    let messages = chatHistory[userid] || [];
 
     // If this is the first message, add a system prompt
     if (messages.length === 0) {
@@ -820,8 +899,11 @@ client.on('ready', () => {
           messages: messages,
         })
         .then((response) => {
-          const llmresponse = response.data.choices[0].message.content;
-          logToConsole(`> LLM Response: ${llmresponse}`, 'info', 1);
+          const llmresponseraw = response.data.choices[0].message.content;
+          //logToConsole(`> Raw LLM Response: ${llmresponseraw}`, 'info', 2);
+          const llmresponse = llmresponseraw.replace('Bella:', '');
+
+          logToConsole(`> LLM Edited Response: ${llmresponse}`, 'info', 1);
 
           if (llmresponse.includes('IGNORING')) {
             currentlythinking = false;
@@ -836,7 +918,7 @@ client.on('ready', () => {
           });
 
           // Update the chat history
-          chatHistory[userId] = messages;
+          chatHistory[userid] = messages;
 
           // Update the transcription file if transcribe mode is enabled
           if (transcribemode) {
@@ -848,13 +930,13 @@ client.on('ready', () => {
             // Append the transcription to the file
             fs.appendFileSync(
               './transcription.txt',
-              `${userId}: ${transcription}\n\nAssistant: ${llmresponse}\n\n`,
+              `${userid}: ${transcription}\n\nAssistant: ${llmresponse}\n\n`,
             );
           }
 
           // Send response to TTS service
           playSound(connection, 'result');
-          sendToTTS(llmresponse, userId, connection, channel);
+          sendToTTS(llmresponse, userid, connection, channel);
         })
         .catch((error) => {
           currentlythinking = false;
@@ -1061,7 +1143,7 @@ client.on('ready', () => {
       process.env.PERPLEXITY_MODEL === 'MY_PERPLEXITY_API_KEY'
     ) {
       logToConsole('X Perplexity API key is missing', 'error', 1);
-      sendToTTS(
+      await sendToTTS(
         'Sorry, I do not have access to internet. You may add a Perplexity API key to add this feature.',
         userId,
         connection,
@@ -1073,7 +1155,7 @@ client.on('ready', () => {
     // Refuse if perplexity is not allowed
     if (process.env.PERPLEXITY === 'false') {
       logToConsole('X Perplexity is not allowed', 'error', 1);
-      sendToTTS(
+      await sendToTTS(
         'Sorry, I am not allowed to search the internet.',
         userId,
         connection,
@@ -1212,13 +1294,13 @@ client.on('ready', () => {
 
   async function sendToTTS(text, userid, connection, channel) {
     const words = text.split(' ');
-    const maxChunkSize = 60; // Maximum words per chunk
+    const maxChunkSize = 120; // Maximum words per chunk
     const punctuationMarks = ['.', '!', '?', ';', ':']; // Punctuation marks to look for
     const chunks = [];
-
+  
     for (let i = 0; i < words.length; ) {
       let end = Math.min(i + maxChunkSize, words.length); // Find the initial end of the chunk
-
+  
       // If the initial end is not the end of the text, try to find a closer punctuation mark
       if (end < words.length) {
         let lastPunctIndex = -1;
@@ -1232,84 +1314,62 @@ client.on('ready', () => {
           end = lastPunctIndex + 1;
         }
       }
-
+  
       // Create the chunk from i to the new end, then adjust it to start the next chunk
       chunks.push(words.slice(i, end).join(' '));
       i = end;
     }
-
-    for (const chunk of chunks) {
-      try {
-        if (process.env.TTS_TYPE === 'speecht5') {
-          logToConsole('> Using SpeechT5 TTS', 'info', 2);
-          const response = await axios.post(
-            process.env.TTS_ENDPOINT + '/synthesize',
-            {
-              text: chunk,
-            },
-            {
-              responseType: 'arraybuffer',
-            },
-          );
-
-          const audioBuffer = Buffer.from(response.data);
-
+  
+    const audioBuffer = await createAudioBuffer(chunks.join(' '));
+  
           // save the audio buffer to a file
-          const filename = `./sounds/tts_${chunks.indexOf(chunk)}.wav`;
-          fs.writeFileSync(filename, audioBuffer);
+    const filename = `./sounds/tts.mp3`;
+    fs.writeFileSync(filename, audioBuffer);
+    //logToConsole(`> Saved file: ${filename}`, 'info', 1);
 
-          if (process.env.RVC === 'true') {
-            sendToRVC(filename, userid, connection, channel);
-          } else {
-            audioqueue.push({ file: filename, index: chunks.indexOf(chunk) });
-
-            if (audioqueue.length === 1) {
-              playAudioQueue(connection, channel, userid);
-            }
-          }
+    if (process.env.RVC === 'true') {
+      await sendToRVC(filename, userid, connection, channel);
+      logToConsole('> Sending to RVC...', 'info', 2);
+    } else {
+      audioqueue.push({ file: filename });
+     // logToConsole(`> Pushed file: ${filename}`, 'info', 2);
+      //console.log(audioqueue)
+      if (audioqueue.length > 0) {
+        if (audioqueue.length === 1) {
+          logToConsole(`> Audio queue item ${audioqueue.length} of ${audioqueue.length}: ${audioqueue[0].file}`, 'info', 2);
+          await playAudioQueue(connection, channel, userid);
         } else {
-          logToConsole('> Using OpenAI TTS', 'info', 2);
-
-          const response = await axios.post(
-            process.env.OPENAI_TTS_ENDPOINT + '/v1/audio/speech',
-            {
-              model: process.env.TTS_MODEL,
-              input: chunk,
-              voice: process.env.TTS_VOICE,
-              response_format: 'mp3',
-              speed: 1.0,
-            },
-            {
-              responseType: 'arraybuffer',
-            },
-          );
-
-          const audioBuffer = Buffer.from(response.data);
-
-          // save the audio buffer to a file
-          const filename = `./sounds/tts_${chunks.indexOf(chunk)}.mp3`;
-          fs.writeFileSync(filename, audioBuffer);
-
-          if (process.env.RVC === 'true') {
-            sendToRVC(filename, userid, connection, channel);
-          } else {
-            audioqueue.push({ file: filename, index: chunks.indexOf(chunk) });
-
-            if (audioqueue.length === 1) {
-              logToConsole('> Playing audio queue', 'info', 2);
-              playAudioQueue(connection, channel, userid);
-            }
+          try {
+            await playAudioQueue(connection, channel, userid);
+            logToConsole(`> Audio queue item ${audioqueue.length} of ${audioqueue.length}: ${audioqueue[audioqueue.length - 1].file}`, 'info', 2);
+          } catch (error) {
+            logToConsole(`Error playing audio item ${audioqueue.length} of ${audioqueue.length}: ${error.message}`, 'error', 2);
           }
         }
-      } catch (error) {
-        currentlythinking = false;
-        logToConsole(
-          `X Failed to send text to TTS: ${error.message}`,
-          'error',
-          1,
-        );
       }
+
+
     }
+  }
+  
+  async function createAudioBuffer(text) {
+    const response = await axios.post(
+      process.env.OPENAI_TTS_ENDPOINT + '/v1/audio/speech',
+      {
+        model: process.env.TTS_MODEL,
+        input: text,
+        voice: process.env.TTS_VOICE,
+        response_format: 'mp3',
+        speed: 1.0,
+      },
+      {
+        responseType: 'arraybuffer',
+      },
+    );
+    logToConsole('> Using OpenAI', 'info', 2);
+    const audioBuffer = Buffer.from(response.data);
+  
+    return (audioBuffer);
   }
 
   async function sendToRVC(file, userid, connection, channel) {
@@ -1389,89 +1449,63 @@ client.on('ready', () => {
     }
   }
 
-  let currentIndex = 0;
-  let retryCount = 0;
-  const maxRetries = 5; // Maximum number of retries before giving up
+  //let retryCount = 0;
+  //const maxRetries = 5; // Maximum number of retries before giving up
 
-  async function playAudioQueue(connection, channel, userid) {
-    // Sort the audioqueue based on the index to ensure the correct play order
-    audioqueue.sort((a, b) => a.index - b.index);
-
-    while (audioqueue.length > 0) {
-      const audio = audioqueue.find((a) => a.index === currentIndex);
-      if (audio) {
-        // Create an audio player
-        const player = createAudioPlayer();
-
+    async function playAudioQueue(connection, channel, userid) {
+      while (audioqueue.length > 0) {
+        const audio = audioqueue.shift(); // Use shift() instead of [0]
         // Create an audio resource from a local file
         const resource = createAudioResource(audio.file);
-
-        // Subscribe the connection to the player and play the resource
-        connection.subscribe(player);
-        player.play(resource);
-
-        player.on('idle', async () => {
-          // Delete the file after it's played
-          try {
-            fs.unlinkSync(audio.file);
-          } catch (err) {
-            logToConsole(`X Failed to delete file: ${err.message}`, 'error', 1);
+        logToConsole(`> Playing audio: ${audio.file}`, 'info', 1);
+        await playAudioItem(connection, channel, userid, resource);
+        player.on('stateChange', async (oldState, newState) => {
+          if (oldState.status === AudioPlayerStatus.Playing && newState.status === AudioPlayerStatus.Idle) {
+            try {
+              deleteFile(audio.file); // Create a new function to delete files after playback
+            } catch (error){
+              logToConsole(`X Failed to delete file ${error.message}`, 'error', 1)
+            }
+            if (audioqueue.length > 0) {
+              await playAudioQueue(connection, channel, userid);
+            } else {
+               currentlythinking = false;
+               logToConsole('> Audio queue finished', 'info', 2);
+            }
           }
-
-          // Remove the played audio from the queue
-          audioqueue = audioqueue.filter((a) => a.index !== currentIndex);
-          currentIndex++;
-          retryCount = 0; // Reset retry count for the next index
-
-          if (audioqueue.length > 0) {
-            await playAudioQueue(connection, channel, userid); // Continue playing
-          } else {
-            currentlythinking = false;
-            audioqueue = [];
-            currentIndex = 0;
-            retryCount = 0;
-            logToConsole('> Audio queue finished.', 'info', 2);
+          if (oldState.status === AudioPlayerStatus.Paused && newState.status === AudioPlayerStatus.Playing) {
+            connection.subscribe(player)
+            player.play (resource)
           }
-        });
+        })
+      }
 
-        player.on('error', (error) =>
-          logToConsole(`Error: ${error.message}`, 'error', 1),
-        );
 
-        break; // Exit the while loop after setting up the player for the current index
-      } else {
-        // If the expected index is not found, wait 1 second and increase the retry count
-        if (retryCount < maxRetries) {
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-          retryCount++;
-        } else {
-          currentlythinking = false;
-          audioqueue = [];
-          currentIndex = 0;
-          retryCount = 0;
-          logToConsole(
-            `X Failed to find audio with index ${currentIndex} after ${maxRetries} retries.`,
-            'error',
-            1,
-          );
-          break; // Give up after exceeding the retry limit
-        }
+
+
+    }
+
+
+
+    async function playAudioItem(connection, channel, userid, resource) {
+      try {
+
+        await connection.subscribe(player);
+        await player.play(resource);
+      } catch (err) {
+        logToConsole(`> Error: ${err.message}`, 'error', 1);
       }
     }
-  }
+    function deleteFile(filename) {
+      fs.unlinkSync(filename);
+      logToConsole(`> Deleting ${filename}`, 'info', 1);
+    }
 
   async function playSound(connection, sound, volume = 1) {
     // Check if allowwithouttrigger is true, if yes ignore
     if ((allowwithouttrigger || allowwithoutbip) && sound !== 'command') {
       return;
     }
-
-    // Check if the sound file exists
-    if (!fs.existsSync(`./sounds/${sound}.mp3`)) {
-      logToConsole(`X Sound file not found: ${sound}.mp3`, 'error', 1);
-      return;
-    }
-
     // Create a stream from the sound file using ffmpeg
     const stream = fs.createReadStream(`./sounds/${sound}.mp3`);
     const ffmpegStream = ffmpeg(stream)
@@ -1494,13 +1528,14 @@ client.on('ready', () => {
     player.on('stateChange', (oldState, newState) => {
       if (newState.status === 'idle') {
         alarmongoing = false;
-        logToConsole('> Finished playing sound.', 'info', 2);
+        //logToConsole('> Finished playing sound.', 'info', 2);
       }
     });
   }
 
-  function restartListening(userID, connection, channel) {
-    handleRecordingForUser(userID, connection, channel);
+
+function restartListening(userid, connection, channel) {
+    handleRecordingForUser(userid, connection, channel);
   }
 
   async function seatchAndPlayYouTube(songName, userid, connection, channel) {
@@ -1512,7 +1547,7 @@ client.on('ready', () => {
 
     if (!videoUrl) {
       // If no video was found, voice it out
-      sendToTTS(
+      await sendToTTS(
         'Sorry, I could not find the requested song.',
         userid,
         connection,
@@ -1538,12 +1573,10 @@ client.on('ready', () => {
     player.play(resource);
     connection.subscribe(player);
 
-    player.on('stateChange', (oldState, newState) => {
-      if (newState.status === 'idle') {
-        currentlythinking = false;
-        logToConsole('> Finished playing YouTube.', 'info', 1);
-      }
-    });
+player.on('unpause', async () => {
+  logToConsole('> Unpausing the player.', 'info', 1);
+   player.unpause();
+});
   }
 
   function logToConsole(message, level, type) {
@@ -1571,7 +1604,7 @@ client.on('ready', () => {
       process.env.YOUTUBE_API === 'MY_YOUTUBE_API_KEY'
     ) {
       logToConsole('X YouTube API key is missing', 'error', 1);
-      sendToTTS(
+      await sendToTTS(
         'Sorry, I do not have access to YouTube. You may add a YouTube API key to add this feature.',
         userid,
         connection,
@@ -1682,7 +1715,7 @@ client.on('ready', () => {
     }
 
     if (!timeUnit || !timeValue) {
-      sendToTTS(
+      await sendToTTS(
         'Sorry, I could not understand the requested timer.',
         userid,
         connection,
@@ -1704,7 +1737,7 @@ client.on('ready', () => {
       hour12: true,
     });
 
-    sendToTTS(
+    await sendToTTS(
       `${type} set for ${time} ${timeUnit}`,
       userid,
       connection,
@@ -1739,7 +1772,7 @@ client.on('ready', () => {
       alarms = alarms.filter((alarm, i) => i !== index);
     } else {
       logToConsole(`X Timer index not found: ${index}`, 'error', 1);
-      sendToTTS(
+       sendToTTS(
         `I could not find a ${alarms[index].type} for this time.`,
         userid,
         connection,
@@ -1750,7 +1783,7 @@ client.on('ready', () => {
 
   function listTimers(userid, connection, channel) {
     if (alarms.length > 1) {
-      sendToTTS(
+       sendToTTS(
         `You have the following: ${alarms.map((alarm, index) => `${alarm.type} ${index + 1} set for ${alarm.time}`).join(', ')}`,
         userid,
         connection,
@@ -1775,7 +1808,7 @@ client.on('ready', () => {
       process.env.HUGGING_FACE_API === 'MY_HUGGING_FACE_API_KEY'
     ) {
       logToConsole('X Hugging Face API key is missing', 'error', 1);
-      sendToTTS(
+      await sendToTTS(
         'Sorry, I do not have access to vision. You may add a Hugging Face API key to add this feature.',
         userId,
         connection,
@@ -1804,7 +1837,7 @@ client.on('ready', () => {
       logToConsole(`> Image caption: ${caption}`, 'info', 1);
 
       // Send the caption to the LLM
-      sendToLLM(
+      await sendToLLM(
         '*the user sent the following image in a text channel*: ' + caption,
         userId,
         connection,
@@ -1812,7 +1845,7 @@ client.on('ready', () => {
       );
     } catch (error) {
       logToConsole(`X Failed to caption image: ${error.message}`, 'error', 1);
-      sendToTTS('Sorry, I cannot see the image.', userId, connection, channel);
+      await sendToTTS('Sorry, I cannot see the image.', userId, connection, channel);
     }
   }
 

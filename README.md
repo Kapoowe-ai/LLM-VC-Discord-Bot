@@ -14,7 +14,7 @@ Additionally, you can just use the bot in text channels.
 ## Prerequisites
 
 - Node.js and npm installed
-- A Discord Bot Token
+- A Discord Bot Token (aka go to https://discord.com/developers and make a bot)
 - Access to OpenAI compatible APIs for STT (Speech to Text), LLM, and TTS services (for fully local, checkout `whisper-asr`, `ollama` and `kokoro`)
 - If you wish to use timer and alarms, you need a `alarm.mp3` and `timer.mp3` files in the `sounds` folder.
 
@@ -71,6 +71,7 @@ https://discord.com/oauth2/authorize?client_id=REPLACEME&permissions=96422051641
 - `/help`: Display the list of available commands.
 
 __You may at any time say `stop` to stop the bot while it is speaking.__
+__Say `(botname) hang on` to pause and `(botname) please continue` to resume speaking
 
 ## Troubleshooting
 - **Bot Doesn't Join Channel**: Ensure the bot has the correct permissions in your Discord server, including the ability to join and speak in voice channels.
