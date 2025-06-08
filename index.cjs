@@ -111,6 +111,7 @@ client.on('ready', () => {
             guildId: interaction.guild.id,
             adapterCreator: interaction.guild.voiceAdapterCreator,
             selfDeaf: false,
+            maxAudioLength: 60 * 1000,
           });
           if (transcribemode) {
             await sendToTTS(
@@ -409,12 +410,16 @@ client.on('ready', () => {
       const filePath = `./recordings/${member.user.id}.pcm`;
       const writeStream = fs.createWriteStream(filePath);
       const name = member.user.username
-      const listenStream = receiver.subscribe(member.user.id, {
-        end: {
-          behavior: EndBehaviorType.AfterSilence,
-          duration: process.env.WAIT_TIME,
+      const listenStream = receiver.subscribe(
+        member.user.id,
+        {
+          end: {
+            behavior: EndBehaviorType.AfterSilence,
+            duration: process.env.WAIT_TIME,
+          },
         },
-      });
+        { MaxListeners: 50},
+      );
 
       const opusDecoder = new prism.opus.Decoder({
         frameSize: 960,
