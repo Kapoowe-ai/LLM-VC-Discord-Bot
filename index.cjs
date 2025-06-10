@@ -326,8 +326,10 @@ client.on('ready', () => {
       );
       if (repliedMessage.author.id !== client.user.id) return; // Only continue if replying to the bot's message
       await message.channel.sendTyping();
+      let editmess =  name + `: ` + message;
       logToConsole('> Reply to message', 'info', 1);
-      const response = await sendTextToLLM(message);
+      const response = await sendTextToLLM(editmess);
+
       const messageParts = splitMessage(response);
 
       // Send the first part as a reply
