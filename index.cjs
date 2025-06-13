@@ -327,9 +327,7 @@ client.on('ready', () => {
       if (repliedMessage.author.id !== client.user.id) return; // Only continue if replying to the bot's message
       await message.channel.sendTyping();
       let nick = message.author.username;
-      let clientid = String(client.user.id);
-      let text = message.content.replace('<@'+ clientid + '>', '');
-      let final = nick + ": " + text;
+      let final = nick + ": " + message;
       logToConsole('> Reply to message', 'info', 1);
       const response = await sendTextToLLM(final);
 
